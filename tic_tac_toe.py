@@ -1,4 +1,4 @@
-from typing import Dict, TypeVar, List;
+from typing import Dict, List, TypeVar;
 from random import choice, random;
 
 Position = TypeVar('Position');
@@ -14,17 +14,18 @@ class Board:
     available_items: List[str];
     all_positions: Dict[str, Position];
     default_value: float;
-    whitespace: str;
     position: Position;
     starting_position: Position;
     winning_item: str;
+    win_value: float = 1.0;
+    lose_value: float = 0.0;
+    draw_value: float = 0.85;
 
-    def __init__(self, size: int = 3, available_items: List[str] = [ 'x', 'o' ], default_value = 0.5, whitespace: str = '_', winning_item = 'x') -> None:
+    def __init__(self, size: int = 3, available_items: List[str] = [ 'x', 'o' ], default_value = 0.5, winning_item = 'x') -> None:
         self.size = size;
         self.available_items = available_items;
         self.default_value = default_value;
-        self.whitespace = whitespace;
-        self.starting_position = Position(self, [self.whitespace for _ in range(0, self.size * self.size)]);
+        self.starting_position = Position(self, [whitespace for _ in range(0, self.size * self.size)]);
         self.all_positions = dict();
         self.all_positions[self.starting_position.to_string()] = self.starting_position;
         self.position = self.starting_position;
@@ -38,24 +39,21 @@ class Board:
             position.value = 1 if position.value == 0 else 0 if position.value == 1 else position.value;
 
     def play(self, players: List[Player], verbose: bool = False) -> None:
-        winner = None;
         self.position = self.starting_position;
         [player.moves_history.clear() for player in players if player is Bot];
-        is_running: bool = True;
-        while is_running:
+        while True:
             for player in players:
                 if self.position.next_positions is None or len(self.position.next_positions) < 1:
                     winner = self.position.get_winner();
-                    is_running = False;
-                    break;
+                    [player.fix_game(None if winner is None else winner == player.item) for player in players if player is Bot];
+                    return;
                 next_move = player.get_move(self);
                 if next_move.to_string() not in self.position.next_positions:
                     print('[JustGINCS] Something gone wrong 🤡');
                     return;
                 self.position = next_move;
                 [p.fix_move() for p in players if p is Bot];
-                _ = self.print() if verbose else None;
-        [player.fix_game(None if winner is None else winner == player.item) for player in players if player is Bot];
+                self.print() if verbose else None;
 
     def play_many(self, players: List[Player], games_count: int = 1000) -> None:
         for i in range(0, games_count):
@@ -66,7 +64,6 @@ class Board:
 
 class Position:
 
-    current_state: Position;
     items: List[str];
     board: Board;
     value: float;
@@ -79,37 +76,37 @@ class Position:
         self.next_positions = next_positions;
 
     def get_best_move(self) -> Position:
-        return choice([position for position in list(self.next_positions.values())
-            if position.value == max(position.value for position in list(self.next_positions.values()))]);
+        max_value = max(position.value for position in list(self.next_positions.values()));
+        return choice([position for position in list(self.next_positions.values()) if position.value == max_value]);
 
     def get_random_move(self) -> Position:
         return choice(list(self.next_positions.values()));
 
     def get_winner(self) -> str | None:
         for item in self.board.available_items:
+            if (sum(cell == item for index, cell in enumerate(self.items)
+                    if (index % self.board.size) == int(index / self.board.size)) == self.board.size
+                or sum(cell == item for index, cell in enumerate(self.items)
+                    if (self.board.size - (index % self.board.size)) == int(index / self.board.size)) == self.board.size):
+                return item;
             for i in range(0, self.board.size):
                 if (sum(cell == item for index, cell in enumerate(self.items)
                         if int(index / self.board.size) == i) == self.board.size
                     or sum(cell == item for index, cell in enumerate(self.items)
                         if (index % self.board.size) == i) == self.board.size):
                     return item;
-            if (sum(cell == item for index, cell in enumerate(self.items)
-                    if (index % self.board.size) == int(index / self.board.size)) == self.board.size
-                or sum(cell == item for index, cell in enumerate(self.items)
-                    if (self.board.size - (index % self.board.size)) == int(index / self.board.size)) == self.board.size):
-                return item;
         return None;
 
     def search_positions(self, item_index: int = 0, default_value: float = 0.5, recursively: bool = True) -> None:
         winner = self.get_winner();
         if winner is not None:
-            self.value = 1.0 if winner == self.board.winning_item else 0;
+            self.value = self.board.win_value if winner == self.board.winning_item else self.board.lose_value;
             self.next_positions = None;
             return;
         self.value = default_value;
         self.next_positions = dict();
 
-        new_positions = list();
+        new_positions: List[Position] = list();
         for index, cell in enumerate(self.items):
             if cell != self.board.whitespace:
                 continue;
@@ -127,7 +124,7 @@ class Position:
         [position.search_positions((item_index + 1) % len(self.board.available_items), default_value) for position in new_positions];
 
     def to_string(self) -> str:
-        return "".join(self.items);
+        return ''.join(self.items);
 
 
 class Player:
@@ -143,7 +140,7 @@ class Player:
     def set_name(self, new_name: str) -> None:
         self.name = new_name;
 
-    def get_move(self, board: Board) -> Position:
+    def get_move(self, board: Board = None) -> Position:
         raise NotImplementedError(self);
 
 
@@ -225,7 +222,7 @@ def input_int(message: str = None, max_value: int = None, error_message: str = N
 
 
 if __name__ == '__main__':
-    print('[JustGINCS] Tic-Tac-Toe bot with reinforcement learning by Gavrilyuk I.P., Efremov D.S., Ivanov A.G., , Kachanov F.K.');
+    print('[JustGINCS] Tic-Tac-Toe bot with reinforcement learning by Gavrilyuk I.P., Efremov D.S., Ivanov A.G., Kachanov F.K.');
 
     print('[JustGINCS] Initializing players, wait please...');
     humans: Dict[str, Player] = dict();
