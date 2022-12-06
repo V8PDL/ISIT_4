@@ -1,5 +1,5 @@
-from typing import Dict, TypeVar, List
-from random import choice, random
+from typing import Dict, TypeVar, List;
+from random import choice, random;
 
 Position = TypeVar('Position');
 Player = TypeVar('Player');
@@ -38,9 +38,9 @@ class Board:
             position.value = 1 if position.value == 0 else 0 if position.value == 1 else position.value;
 
     def play(self, players: List[Player], verbose: bool = False) -> None:
-        winner = None
+        winner = None;
         self.position = self.starting_position;
-        [player.moves_history.clear() for player in players if player is Bot]
+        [player.moves_history.clear() for player in players if player is Bot];
         is_running: bool = True;
         while is_running:
             for player in players:
@@ -53,7 +53,7 @@ class Board:
                     print('[JustGINCS] Something gone wrong 🤡');
                     return;
                 self.position = next_move;
-                [p.fix_move() for p in players if p is Bot]
+                [p.fix_move() for p in players if p is Bot];
                 _ = self.print() if verbose else None;
         [player.fix_game(None if winner is None else winner == player.item) for player in players if player is Bot];
 
@@ -79,7 +79,7 @@ class Position:
         self.next_positions = next_positions;
 
     def get_best_move(self) -> Position:
-        return choice([position for position in list(self.next_positions.values()) 
+        return choice([position for position in list(self.next_positions.values())
             if position.value == max(position.value for position in list(self.next_positions.values()))]);
 
     def get_random_move(self) -> Position:
@@ -118,7 +118,7 @@ class Position:
             new_position = Position(self.board, new_items);
             string_position = new_position.to_string();
             if string_position in self.board.all_positions:
-                self.next_positions[string_position] = self.board.all_positions[string_position]
+                self.next_positions[string_position] = self.board.all_positions[string_position];
                 continue;
             self.next_positions[string_position] = new_position;
             self.board.all_positions[string_position] = new_position;
@@ -133,7 +133,7 @@ class Position:
 class Player:
 
     item: str;
-    name: str
+    name: str;
 
     def __init__(self, board: Board, item: str = 'x', name = None) -> None:
         self.board = board;
@@ -160,7 +160,7 @@ class Bot(Player):
         self.games_history: List[bool | None] = list();
         self.epsilon = epsilon;
         self.alfa = alfa;
-        super().__init__(board, item, name)
+        super().__init__(board, item, name);
 
     def get_move(self, board: Board) -> Position:
         is_greedy = random() > self.epsilon;
@@ -235,7 +235,7 @@ if __name__ == '__main__':
         new_board = Board(3, available_items, 0.5, whitespace, item);
         humans[item] = Human(new_board, item, f'Human {item}');
         randomizers[item] = Randomer(new_board, item, f'Randomizer {item}');
-        bots[item] = Bot(new_board, 0.05, 0.1, item, f'AI {item}')
+        bots[item] = Bot(new_board, 0.05, 0.1, item, f'AI {item}');
 
     print('[JustGINCS] Initializing boards, wait, please...');
     bots['x'].board.position.search_positions();
