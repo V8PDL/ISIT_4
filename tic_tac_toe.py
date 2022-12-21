@@ -1,20 +1,21 @@
 from typing import Dict, List, TypeVar;
 from random import choice, random;
 from matplotlib import pyplot;
+from time import time;
 
 Position = TypeVar('Position');
 Player = TypeVar('Player');
 Board = TypeVar('Board');
 Comfortable_Counter = TypeVar('Comfortable_Counter');
-board_size: int = 3;
-available_items: List[str] = ['x', 'o'];
+board_size: int = 4;
+available_items: List[str] = ['x', 'o', 'z'];
 default_value: float = 0.5;
 win_value: float = 1.0;
 lose_value: float = 0.0;
 draw_value: float = 0.5;
 whitespace: str = ' ';
-default_alpha: float = 0.1;
-default_epsilon: float = 0.05;
+default_alpha: float = 0.3;
+default_epsilon: float = 0.3;
 
 
 class Comfortable_Counter:
@@ -44,34 +45,35 @@ class Board:
         self.all_positions[self.starting_position.to_string()] = self.starting_position;
         self.position = self.starting_position;
         self.winning_item = winning_item;
+        self.position.search_positions();
 
     def print(self) -> None:
-        [print(f' {cell} ', end='' if (index + 1) % board_size else "\n")
-         for index, cell in enumerate(self.position.items)];
+        long_line = '-' * (board_size * 4 + 1);
+        print(long_line);
+        [print(f'| {cell} ', end='' if (index + 1) % board_size else f"|\n{long_line}\n") for index, cell in enumerate(self.position.items)];
+        print();
 
-    def reverse_winner(self) -> None:
-        for position in self.all_positions.values():
-            winner = position.get_winner();
-            position.value = 1.0 if winner == self.winning_item else 0.0 if winner is not None else position.value;
 
     def play(self, players: List[Player], verbose: bool = False) -> None:
         self.position = self.starting_position;
         sorted_players = [next(player for player in players if player.item == item) for item in available_items];
-        [player.new_game() for player in sorted_players if player is Bot];
+        [player.new_game() for player in sorted_players if isinstance(player, Bot)];
         player_index: int = 0;
         while True:
+            if self.position.next_positions is None:
+                self.position.search_positions();
             player = sorted_players[player_index];
             player_index = (player_index + 1) % len(sorted_players);
             if self.position.next_positions is None or len(self.position.next_positions) < 1:
                 winner = self.position.get_winner();
-                [player.fix_game(None if winner is None else winner == player.item) for player in sorted_players];
+                [player.fix_game(None if winner is None else winner == player.item, self.position) for player in sorted_players];
                 return;
             next_move = player.get_move(self);
             if next_move.to_string() not in self.position.next_positions:
                 print('[JustGINCS] Something gone wrong 🤡');
                 return;
             self.position = next_move;
-            print(f"Move of {player.name}:") if verbose and player is not Human else None;
+            print(f"Move of {player.name}:") if verbose and isinstance(player, Human) else None;
             self.print() if verbose else None;
 
     def play_many(self, players: List[Player], games_count: int = 1000) -> None:
@@ -84,16 +86,17 @@ class Position:
     board: Board;
     value: float;
     next_positions: Dict[str, Position];
+    moving_item_index: int;
 
-    def __init__(self, board: Board, items: List[str], value: float = None, next_positions: Dict[str, Position] = None) -> None:
+    def __init__(self, board: Board, items: List[str], moving_item_index: int = 0, value: float = default_value, next_positions: Dict[str, Position] = None) -> None:
         self.items = items;
         self.board = board;
+        self.moving_item_index = moving_item_index;
         self.value = value;
         self.next_positions = next_positions;
 
     def get_best_move(self) -> Position:
-        max_value = max(position.value for position in list(
-            self.next_positions.values()));
+        max_value = max(position.value for position in list(self.next_positions.values()));
         return choice([position for position in list(self.next_positions.values()) if position.value == max_value]);
 
     def get_random_move(self) -> Position:
@@ -114,22 +117,19 @@ class Position:
                     return item;
         return None;
 
-    def search_positions(self, item_index: int = 0) -> None:
-        winner = self.get_winner();
-        if winner is not None:
-            self.value = win_value if winner == self.board.winning_item else lose_value;
-            self.next_positions = None;
-            return;
+    def search_positions(self) -> None:
         self.value = default_value;
         self.next_positions = dict();
+        if self.get_winner() is not None:
+            return;
 
         new_positions: List[Position] = list();
         for index, cell in enumerate(self.items):
             if cell != whitespace:
                 continue;
             new_items = self.items.copy();
-            new_items[index] = available_items[item_index];
-            new_position = Position(self.board, new_items);
+            new_items[index] = available_items[self.moving_item_index];
+            new_position = Position(self.board, new_items, (self.moving_item_index + 1) % len(available_items));
             string_position = new_position.to_string();
             if string_position in self.board.all_positions:
                 self.next_positions[string_position] = self.board.all_positions[string_position];
@@ -137,8 +137,6 @@ class Position:
             self.next_positions[string_position] = new_position;
             self.board.all_positions[string_position] = new_position;
             new_positions.append(new_position);
-
-        [position.search_positions((item_index + 1) % len(available_items)) for position in new_positions];
 
     def to_string(self) -> str:
         return ''.join(self.items);
@@ -162,7 +160,7 @@ class Player:
     def get_move(self, board: Board = None) -> Position:
         raise NotImplementedError(self);
 
-    def fix_game(self, winner: bool | None) -> None:
+    def fix_game(self, winner: bool | None, position: Position) -> None:
         self.games_history.append(winner);
 
     def print_stats(self) -> None:
@@ -186,9 +184,14 @@ Total: {total_games}""");
         if step < 2:
             print("Not enough games for statistics");
             return;
-        means = [self.games_history[i * step: (i + 1) * step].count(True) / step for i in range(0, 100)];
-        games_counts = [step * i + step / 2 for i in range(0, 100)];
+        wins: int = 0;
+        means: List[bool | None] = list();
+        for i in range(0, 100):
+            wins += self.games_history[i * step: (i + 1) * step].count(True);
+            means.append(wins / ((i + 1) * step));
+        games_counts = [step * (i + 0.5) for i in range(0, 100)];
         pyplot.plot(games_counts, means);
+        pyplot.suptitle(f'Winrate of {self.name} for board {board_size}x{board_size} with {len(available_items)} players{f" with alpha = {self.alfa}, epsilon = {self.epsilon}" if isinstance(self, Bot) else ""}');
         pyplot.ylabel('Winrate');
         pyplot.xlabel('Games count');
         pyplot.show();
@@ -197,9 +200,8 @@ Total: {total_games}""");
 class Bot(Player):
 
     epsilon: float;
-    alfa: float;
+    alfa: float;5
     board: Board;
-    games_history: List[bool | None];
     last_move: Position;
 
     def __init__(self, board: Board, epsilon: float, alfa: float, item: str = 'x', name: str = 'Bot (x)') -> None:
@@ -213,16 +215,29 @@ class Bot(Player):
         self.last_move = None;
 
     def get_move(self, board: Board) -> Position:
+        if board.position.to_string() not in self.board.all_positions:
+            self.board.all_positions[board.position.to_string()] = board.position;
         self_position = self.board.all_positions[board.position.to_string()];
+        if self_position.next_positions is None:
+            self_position.search_positions();
         is_greedy = random() > self.epsilon;
         move = self_position.get_best_move() if is_greedy else self_position.get_random_move();
         if self.last_move is not None:
-            if move.value == 1.0:
-                a = 1;
-                b = 2;
-            self.last_move.value += self.alfa * (move.value - self.last_move.value);
+            winner = move.get_winner();
+            if winner is not None:   
+                move.value = 1.0;
+            else:
+                self.last_move.value += self.alfa * (move.value - self.last_move.value);
         self.last_move = move;
         return move;
+
+    def fix_game(self, winner: bool | None, position: Position) -> None:
+        super().fix_game(winner, position);
+        if not winner:
+            self.last_move.value += self.alfa * (0.0 - self.last_move.value);
+            if position.to_string() not in self.board.all_positions:
+                self.board.all_positions[position.to_string()] = position;
+            self.board.all_positions[position.to_string()].value = 0.0;
 
 
 class Randomer(Player):
@@ -265,8 +280,6 @@ class Human(Player):
                     winner = new_position.get_winner();
                     if winner is not None:
                         print(f"{self.name}, you {'won' if winner == self.item else 'lost'}!");
-                    elif new_position.next_positions is None or len(new_position.next_positions) < 1:
-                        print(f"{self.name}, it is draw!");
                     return new_position;
             except:
                 print('Wrong input, try again. Write \'exit\' to exit.');
@@ -300,9 +313,6 @@ if __name__ == '__main__':
         bots[item] = Bot(new_board, default_epsilon, default_alpha, item, f'AI {item}');
 
     players = list(humans.values()) + list(randomizers.values()) + list(smart_randomizers.values()) + list(bots.values());
-
-    print('[JustGINCS] Initializing boards, wait, please...');
-    [bot.board.position.search_positions() for bot in bots.values()];
 
     while True:
         number = Comfortable_Counter();
@@ -345,12 +355,16 @@ Enter a value: ''', 3);
             if games_count < 0:
                 continue;
             item = available_items[(input_number - 1) % len(bots)];
-            opponents = [bot for bot in randomizers.values() if bot.item != item] if input_number <= 2 * len(bots) else [bot for bot in smart_randomizers.values() if bot.item != item]
-            opponents.append(bots[item])
+            opponents = [bot for bot in randomizers.values() if bot.item != item] if input_number <= 2 * len(bots) else [bot for bot in smart_randomizers.values() if bot.item != item];
+            opponents.append(bots[item]);
+            time_before = time();
             bots[item].board.play_many(opponents, games_count);
+            time_after = time();
+            print(f"Played for {time_after - time_before: 0.00000f} sec");
         elif input_number <= 4 * len(bots):
             item = available_items[(input_number - 1) % len(bots)];
             bots[item].board = Board(item);
+            bots[item].board.position.search_positions
         elif input_number <= 5 * len(bots):
             item = available_items[(input_number - 1) % len(bots)];
             opponents = [bot for bot in bots.values() if bot.item != item];
